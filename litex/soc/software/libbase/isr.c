@@ -29,36 +29,38 @@ void isr(void)
     onetime++;
   }
 }
-#elif defined(__rocket__) || defined(__openc906__)
-#if defined(__openc906__)
-#define PLIC_EXT_IRQ_BASE 16
-#else
-#define PLIC_EXT_IRQ_BASE 1
-#endif
+#elif defined(__riscv_plic__)
+
+// PLIC initialization.
 void plic_init(void);
 void plic_init(void)
 {
 	int i;
 
-	// priorities for first 8 external interrupts
+	// Set priorities for the first 8 external interrupts to 1.
 	for (i = 0; i < 8; i++)
 		*((unsigned int *)PLIC_BASE + PLIC_EXT_IRQ_BASE + i) = 1;
-	// enable first 8 external interrupts
+
+	// Enable the first 8 external interrupts
 	*((unsigned int *)PLIC_ENABLED) = 0xff << PLIC_EXT_IRQ_BASE;
-	// set priority threshold to 0 (any priority > 0 triggers interrupt)
+
+	// Set priority threshold to 0 (any priority > 0 triggers an interrupt).
 	*((unsigned int *)PLIC_THRSHLD) = 0;
 }
 
+// Interrupt Service Routine.
 void isr(void)
 {
 	unsigned int claim;
 
+	// Claim and handle pending interrupts.
 	while ((claim = *((unsigned int *)PLIC_CLAIM))) {
 		switch (claim - PLIC_EXT_IRQ_BASE) {
 		case UART_INTERRUPT:
-			uart_isr();
+			uart_isr(); // Handle UART interrupt.
 			break;
 		default:
+			// Unhandled interrupt source, print diagnostic information.
 			printf("## PLIC: Unhandled claim: %d\n", claim);
 			printf("# plic_enabled:    %08x\n", irq_getmask());
 			printf("# plic_pending:    %08x\n", irq_pending());
@@ -70,10 +72,11 @@ void isr(void)
 			printf("###########################\n\n");
 			break;
 		}
+		// Acknowledge the interrupt.
 		*((unsigned int *)PLIC_CLAIM) = claim;
 	}
 }
-#elif defined(__cv32e40p__)
+#elif defined(__cv32e40p__)  || defined(__cv32e41p__)
 
 #define FIRQ_OFFSET 16
 #define IRQ_MASK 0x7FFFFFFF
@@ -191,18 +194,45 @@ void isr(void)
 }
 
 #else
+struct irq_table
+{
+	isr_t isr;
+} irq_table[CONFIG_CPU_INTERRUPTS];
+
+int irq_attach(unsigned int irq, isr_t isr)
+{
+	if (irq >= CONFIG_CPU_INTERRUPTS) {
+		printf("Inv irq %d\n", irq);
+		return -1;
+	}
+
+	unsigned int ie = irq_getie();
+	irq_setie(0);
+	irq_table[irq].isr = isr;
+	irq_setie(ie);
+	return irq;
+}
+
+int irq_detach(unsigned int irq)
+{
+	return irq_attach(irq, NULL);
+}
+
 void isr(void)
 {
-	__attribute__((unused)) unsigned int irqs;
+	unsigned int irqs = irq_pending() & irq_getmask();
 
-	irqs = irq_pending() & irq_getmask();
-
-#ifdef CSR_UART_BASE
-#ifndef UART_POLLING
-	if(irqs & (1 << UART_INTERRUPT))
-		uart_isr();
-#endif
-#endif
+	while (irqs)
+	{
+		const unsigned int irq = __builtin_ctz(irqs);
+		if ((irq < CONFIG_CPU_INTERRUPTS) && irq_table[irq].isr)
+			irq_table[irq].isr();
+		else {
+			irq_setmask(irq_getmask() & ~(1<<irq));
+			printf("\n*** disabled spurious irq %d ***\n", irq);
+		}
+		irqs &= irqs - 1; // clear this irq (the first bit set)
+	}
 }
 #endif
 

@@ -40,6 +40,12 @@ class OpenOCD(GenericProgrammer):
         ])
         self.call(["openocd", "-f", config, "-c", script])
 
+    def get_tap_name(self, config):
+        cfg_str = open(config).read()
+        if "zynq_7000" in cfg_str:
+            return "zynq_pl.bs"
+        return "$_CHIPNAME.tap"
+
     def get_ir(self, chain, config):
         cfg_str = open(config).read()
         # Lattice ECP5.
@@ -55,6 +61,11 @@ class OpenOCD(GenericProgrammer):
                 2: 0x903, # USER2.
                 3: 0x922, # USER3.
                 4: 0x923, # USER4.
+            }[chain]
+        # Efinix titanium
+        elif "titanium" in cfg_str:
+            chain = {
+                1: 0x08,
             }[chain]
         # Xilinx 7-Series.
         else:
@@ -93,6 +104,7 @@ class OpenOCD(GenericProgrammer):
           - TX valid : bit 9
         """
         config   = self.find_config()
+        tap_name = self.get_tap_name(config)
         ir       = self.get_ir(chain, config)
         endstate = self.get_endstate(config)
         cfg = """
@@ -139,12 +151,8 @@ proc jtagstream_drain {tap tx chunk_rx max_rx} {
 
 proc jtagstream_rxtx {tap client is_poll} {
     if {![$client eof]} {
-        if {!$is_poll} {
-            set tx [$client read 1]
-        } else {
-            set tx ""
-        }
-        set rx [jtagstream_drain $tap $tx 64 4096]
+        set tx [$client read 16]
+        set rx [jtagstream_drain $tap $tx 128 4096]
         if {[string length $rx]} {
             #echo [string length $rx]
             $client puts -nonewline $rx
@@ -162,6 +170,7 @@ proc jtagstream_rxtx {tap client is_poll} {
 proc jtagstream_client {tap sock} {
     set client [$sock accept]
     fconfigure $client -buffering none
+    fconfigure $client -blocking 0
     $client readable [list jtagstream_rxtx $tap $client 0]
     $client onexception [list $client close]
     after 1 [list jtagstream_rxtx $tap $client 1]
@@ -183,8 +192,9 @@ proc jtagstream_serve {tap port} {
         write_to_file("stream.cfg", cfg)
         script = "; ".join([
             "init",
-            "irscan $_CHIPNAME.tap {:d}".format(ir),
-            "jtagstream_serve $_CHIPNAME.tap {:d}".format(port),
+            #"poll off", # FIXME: not supported for ECP5
+            "irscan {} {:d}".format(tap_name, ir),
+            "jtagstream_serve {} {:d}".format(tap_name, port),
             "exit",
         ])
         self.call(["openocd", "-f", config, "-f", "stream.cfg", "-c", script])

@@ -104,6 +104,10 @@ def dts_reg_names(regs):
 def disabled_handler(name, parm, csr):
     return indent('status = "disabled";\n')
 
+def cpu_handler(name, parm, csr):
+    return indent("clock-frequency = <{}>;\n".format(
+        csr['constants']['config_clock_frequency']
+    ))
 
 def ram_handler(name, parm, csr):
     mem_reg = {
@@ -193,6 +197,14 @@ def peripheral_handler(name, parm, csr):
 
 
 overlay_handlers = {
+    'cpu': {
+        'handler': cpu_handler,
+        'alias': 'cpu0',
+    },
+    'ctrl': {
+        'handler': peripheral_handler,
+        'alias': 'ctrl0',
+    },
     'uart': {
         'handler': peripheral_handler,
         'alias': 'uart0',
@@ -211,6 +223,36 @@ overlay_handlers = {
         'handler': peripheral_handler,
         'alias': 'spi0',
         'config_entry': 'SPI_LITESPI'
+    },
+    'sdcard_block2mem': {
+        'handler': peripheral_handler,
+        'alias': 'sdcard_block2mem',
+        'size': 0x18,
+        'config_entry': 'SD_LITESD'
+    },
+    'sdcard_core': {
+        'handler': peripheral_handler,
+        'alias': 'sdcard_core',
+        'size': 0x2C,
+        'config_entry': 'SD_LITESD'
+    },
+    'sdcard_irq': {
+        'handler': peripheral_handler,
+        'alias': 'sdcard_irq',
+        'size': 0x0C,
+        'config_entry': 'SD_LITESD'
+    },
+    'sdcard_mem2block': {
+        'handler': peripheral_handler,
+        'alias': 'sdcard_mem2block',
+        'size': 0x18,
+        'config_entry': 'SD_LITESD'
+    },
+    'sdcard_phy': {
+        'handler': peripheral_handler,
+        'alias': 'sdcard_phy',
+        'size': 0x10,
+        'config_entry': 'SD_LITESD'
     },
     'i2c0' : {
         'handler': i2c_handler,

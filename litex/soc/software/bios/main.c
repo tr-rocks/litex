@@ -63,7 +63,7 @@ static void boot_sequence(void)
 #ifdef ROM_BOOT_ADDRESS
 	romboot();
 #endif
-#if defined(CSR_SPISDCARD_BASE) || defined(CSR_SDCORE_BASE)
+#if defined(CSR_SPISDCARD_BASE) || defined(CSR_SDCARD_CORE_BASE)
 	sdcardboot();
 #endif
 #if defined(CSR_SATA_SECTOR2MEM_BASE)
@@ -110,7 +110,7 @@ __attribute__((__used__)) int main(int i, char **c)
 	printf("\e[1m     /____/_/\\__/\\__/_/|_|\e[0m\n");
 	printf("\e[1m   Build your hardware, easily!\e[0m\n");
 	printf("\n");
-	printf(" (c) Copyright 2012-2023 Enjoy-Digital\n");
+	printf(" (c) Copyright 2012-2024 Enjoy-Digital\n");
 	printf(" (c) Copyright 2007-2015 M-Labs\n");
 	printf("\n");
 #ifndef CONFIG_BIOS_NO_BUILD_TIME
@@ -125,7 +125,11 @@ __attribute__((__used__)) int main(int i, char **c)
 	printf("--=============== \e[1mSoC\e[0m ==================--\n");
 	printf("\e[1mCPU\e[0m:\t\t%s @ %dMHz\n",
 		CONFIG_CPU_HUMAN_NAME,
+#ifdef CONFIG_CPU_CLK_FREQ
+		CONFIG_CPU_CLK_FREQ/1000000);
+#else
 		CONFIG_CLOCK_FREQUENCY/1000000);
+#endif
 	printf("\e[1mBUS\e[0m:\t\t%s %d-bit @ %dGiB\n",
 		CONFIG_BUS_STANDARD,
 		CONFIG_BUS_DATA_WIDTH,
@@ -170,6 +174,88 @@ __attribute__((__used__)) int main(int i, char **c)
 #endif
 
         sdr_ok = 1;
+
+#ifdef CSR_HYPERRAM_BASE /* FIXME: Move to libbase/hyperram.h/c? */
+    /* Helper Functions */
+
+    printf("HyperRAM init...\n");
+    void hyperram_write_reg(uint16_t reg_addr, uint16_t data) {
+        /* Write data to the register */
+        hyperram_reg_wdata_write(data);
+        hyperram_reg_control_write(
+            1        << CSR_HYPERRAM_REG_CONTROL_WRITE_OFFSET |
+            0        << CSR_HYPERRAM_REG_CONTROL_READ_OFFSET  |
+            reg_addr << CSR_HYPERRAM_REG_CONTROL_ADDR_OFFSET
+        );
+        /* Wait for write to complete */
+        while ((hyperram_reg_status_read() & (1 << CSR_HYPERRAM_REG_STATUS_WRITE_DONE_OFFSET)) == 0);
+    }
+
+    uint16_t hyperram_read_reg(uint16_t reg_addr) {
+        /* Read data from the register */
+        hyperram_reg_control_write(
+            0        << CSR_HYPERRAM_REG_CONTROL_WRITE_OFFSET |
+            1        << CSR_HYPERRAM_REG_CONTROL_READ_OFFSET  |
+            reg_addr << CSR_HYPERRAM_REG_CONTROL_ADDR_OFFSET
+        );
+        /* Wait for read to complete */
+        while ((hyperram_reg_status_read() & (1 << CSR_HYPERRAM_REG_STATUS_READ_DONE_OFFSET)) == 0);
+        return hyperram_reg_rdata_read();
+    }
+
+    /* Configuration and Utility Functions */
+
+    uint16_t hyperram_get_core_latency_setting(uint32_t clk_freq) {
+        /* Raw clock latency settings for the HyperRAM core */
+        if (clk_freq <=  85000000) return 3; /* 3 Clock Latency */
+        if (clk_freq <= 104000000) return 4; /* 4 Clock Latency */
+        if (clk_freq <= 133000000) return 5; /* 5 Clock Latency */
+        if (clk_freq <= 166000000) return 6; /* 6 Clock Latency */
+        if (clk_freq <= 250000000) return 7; /* 7 Clock Latency */
+        return 7; /* Default to highest latency for safety */
+    }
+
+    uint16_t hyperram_get_chip_latency_setting(uint32_t clk_freq) {
+        /* LUT/Translated settings for the HyperRAM chip */
+        if (clk_freq <=  85000000) return 0b1110; /* 3 Clock Latency */
+        if (clk_freq <= 104000000) return 0b1111; /* 4 Clock Latency */
+        if (clk_freq <= 133000000) return 0b0000; /* 5 Clock Latency */
+        if (clk_freq <= 166000000) return 0b0001; /* 6 Clock Latency */
+        if (clk_freq <= 250000000) return 0b0010; /* 7 Clock Latency */
+        return 0b0010; /* Default to highest latency for safety */
+    }
+
+    void hyperram_configure_latency(void) {
+        uint16_t config_reg_0 = 0x8f2f;
+        uint16_t core_latency_setting;
+        uint16_t chip_latency_setting;
+
+        /* Compute Latency settings */
+        core_latency_setting = hyperram_get_core_latency_setting(CONFIG_CLOCK_FREQUENCY/4);
+        chip_latency_setting = hyperram_get_chip_latency_setting(CONFIG_CLOCK_FREQUENCY/4);
+
+        /* Write Latency to HyperRAM Core */
+        printf("HyperRAM Core Latency: %d CK (X1).\n", core_latency_setting);
+        hyperram_config_write(core_latency_setting << CSR_HYPERRAM_CONFIG_LATENCY_OFFSET);
+
+        /* Enable Variable Latency on HyperRAM Chip */
+        if (hyperram_status_read() & 0x1)
+            config_reg_0 &= ~(0b1 << 3); /* Enable Variable Latency */
+
+        /* Update Latency on HyperRAM Chip */
+        config_reg_0 &= ~(0b1111 << 4);
+        config_reg_0 |= chip_latency_setting << 4;
+
+        /* Write Configuration Register 0 to HyperRAM Chip */
+        hyperram_write_reg(2, config_reg_0);
+
+        /* Read current configuration */
+        config_reg_0 = hyperram_read_reg(2);
+        printf("HyperRAM Configuration Register 0: %08x\n", config_reg_0);
+    }
+    hyperram_configure_latency();
+    printf("\n");
+#endif
 
 #if defined(CSR_ETHMAC_BASE) || defined(MAIN_RAM_BASE) || defined(CSR_SPIFLASH_CORE_BASE)
     printf("--========== \e[1mInitialization\e[0m ============--\n");
