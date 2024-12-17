@@ -492,7 +492,7 @@ static void sdram_set_addr_freq_handler(int nb_params, char **params)
 	char *c;
 	uint32_t order_val;
 	uint32_t addr_val;
-	uint32_t freq_val;
+	uint32_t freq_val = 1;
 
 	// Value to set from functions
 	uint32_t num_addrs_attack_sig_val;
@@ -515,7 +515,7 @@ static void sdram_set_addr_freq_handler(int nb_params, char **params)
 			printf("Add new order value: %ld\n", num_addrs_attack_sig_val);
 		}
 		printf("addr_val: Address to attack (ex. 0x1f)\n");
-		printf("freq_val: Number of times to attack address before moving to next one\n");
+		printf("freq_val [default:1]: Number of times to attack address before moving to next one\n");
 		return;
 	}
 	order_val = strtoul(params[0], &c, 0);
@@ -528,11 +528,13 @@ static void sdram_set_addr_freq_handler(int nb_params, char **params)
 		printf("Incorrect addr_val");
 		return;
 	}
-	freq_val = strtoul(params[2], &c, 0);
-	if (*c != 0) {
-		printf("Incorrect freq_val");
-		return;
-	} 
+	if (nb_params > 2) {
+		freq_val = strtoul(params[2], &c, 0);
+		if (*c != 0) {
+			printf("Incorrect freq val");
+			return;
+		}
+	}
 	sdram_set_addr_freq(order_val, addr_val, freq_val, num_addrs_attack_sig_val);
 }
 define_command(sdram_set_addr_freq_rhtest, sdram_set_addr_freq_handler, "Set addresses and freqs for hammering", LITEDRAM_CMDS);
