@@ -1616,7 +1616,7 @@ class LiteXSoC(SoC):
 
     # Add SDRAM ------------------------------------------------------------------------------------
     def add_sdram(self, name="sdram", phy=None, module=None, origin=None, size=None,
-        with_bist               = False,
+        with_bist               = True,
         with_soc_interconnect   = True,
         l2_cache_size           = 8192,
         l2_cache_min_data_width = 128,
@@ -1665,7 +1665,28 @@ class LiteXSoC(SoC):
         # LiteDRAM BIST.
         if with_bist:
 
-            self.submodules.rh_test = Row_Hammer_Test(sdram.crossbar.get_port(), self.sys_clk_freq)
+            ###########################
+            # Rowhammer State Machine
+            ###########################
+
+            # Calculate col bits
+            cba_shifts = {"ROW_BANK_COL": sdram.controller.settings.geom.colbits - sdram.controller.interface.address_align}
+            cba_shift = cba_shifts[sdram.controller.settings.address_mapping]
+
+            self.submodules.rh_test = Row_Hammer_Test(
+                sdram.crossbar.get_port(), 
+                self.sys_clk_freq, 
+                trefi                  = self.sdram.trefi, 
+                refresh_enable         = self.sdram.refresh_enable,
+                auto_precharge_setting = self.sdram.auto_precharge_csr,
+                bank_bits              = sdram.crossbar.bank_bits,
+                col_bits               = cba_shift,
+                trefi_setting          = module.timing_settings.tREFI,
+            )
+
+            ########################
+            # Previous Bist
+            ########################
 
             # sdram_generator = LiteDRAMBISTGenerator(sdram.crossbar.get_port())
             # sdram_checker   = LiteDRAMBISTChecker(  sdram.crossbar.get_port())

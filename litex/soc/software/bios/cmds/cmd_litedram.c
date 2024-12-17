@@ -15,6 +15,7 @@
 #include <liblitedram/sdram_spd.h>
 #include <liblitedram/bist.h>
 #include <liblitedram/accessors.h>
+#include <liblitedram/rh_test.h>
 
 #include "../command.h"
 #include "../helpers.h"
@@ -445,3 +446,312 @@ define_command(sdram_spd, sdram_spd_handler, "Read SDRAM SPD EEPROM", LITEDRAM_C
 #ifdef SDRAM_DEBUG
 define_command(sdram_debug, sdram_debug, "Run SDRAM debug tests", LITEDRAM_CMDS);
 #endif
+
+#ifdef CSR_RH_TEST_BASE
+/**
+ * Command "sdram_rhtest_ref_rate_set"
+ * 
+ * Set the refresh rate for the rohammer test
+ * 
+*/
+static void sdram_rhtest_ref_rate_handler(int nb_params, char **params)
+{
+	char *c;
+	uint32_t sdram_refresh_rate;
+
+	if (nb_params < 1) {
+		printf("sdram_set_ref_rate_rhtest <refresh_rate>");
+		return;
+	}
+	sdram_refresh_rate = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect ref rate");
+		return;
+	}
+
+	// Disable refresh if set to zero, else enable it and set refresh rate
+	if (sdram_refresh_rate == 0) {
+		rh_test_refresh_enable_csr_write(0);
+		printf(OUTPUT_STR_DISABLED);
+	} else {
+		rh_test_refresh_enable_csr_write(1);
+		rh_test_refresh_rate_csr_write(sdram_refresh_rate);
+		printf(OUTPUT_STR_ENABLED, sdram_refresh_rate);
+	}
+}
+define_command(sdram_set_ref_rate_rhtest, sdram_rhtest_ref_rate_handler, "Set refresh rate for rh test", LITEDRAM_CMDS);
+
+/**
+ * Command "sdram_set_addr_freq"
+ * 
+ * Set the addresses we want to attack and the number of times we want to attack
+ * 
+*/
+static void sdram_set_addr_freq_handler(int nb_params, char **params)
+{
+	char *c;
+	uint32_t order_val;
+	uint32_t addr_val;
+	uint32_t freq_val;
+
+	// Value to set from functions
+	uint32_t num_addrs_attack_sig_val;
+
+	// Obtain value
+	num_addrs_attack_sig_val = sdram_get_num_addrs_attack_sig();
+
+	if (nb_params < 3) {
+		
+
+		printf("sdram_set_addr_freq_rhtest <order_val> <addr_val> <freq_val>\n");
+		printf("order_val: Number between 0 - 19, choose the order value to set\n");
+		printf("Available values are:\n");
+		printf("Modify order values: ");
+		for (int i = 0; ((i < num_addrs_attack_sig_val) && (i < NUM_SETS_ATTACK_ADDR)); ++i) {
+			printf("%d ", i);
+		}
+		printf("\n");
+		if (num_addrs_attack_sig_val < NUM_SETS_ATTACK_ADDR) {
+			printf("Add new order value: %ld\n", num_addrs_attack_sig_val);
+		}
+		printf("addr_val: Address to attack (ex. 0x1f)\n");
+		printf("freq_val: Number of times to attack address before moving to next one\n");
+		return;
+	}
+	order_val = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect order_val");
+		return;
+	}
+	addr_val = strtoul(params[1], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect addr_val");
+		return;
+	}
+	freq_val = strtoul(params[2], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect freq_val");
+		return;
+	} 
+	sdram_set_addr_freq(order_val, addr_val, freq_val, num_addrs_attack_sig_val);
+}
+define_command(sdram_set_addr_freq_rhtest, sdram_set_addr_freq_handler, "Set addresses and freqs for hammering", LITEDRAM_CMDS);
+
+/**
+ * Command "sdram_set_cycles"
+ * 
+ * Set the number of cycles to go through addressess in row hammer test
+ * 
+*/
+static void sdram_set_cycles_handler(int nb_params, char **params)
+{
+	char *c;
+	uint32_t cycle_val;
+	uint32_t timer_num = 0;
+
+	if (nb_params < 1) {
+		printf("sdram_set_cycles_rhtest <cycles> <timer_num>\n");
+		printf("cycles: Number of times to go through all the addresses (32-bit max)\n");
+		printf("timer_num (default=0): The timer selected:\n");
+		printf(" 0: - Cycles for all 20 states, 1 - 5: Cycles for pairs of states 1-2, 3-4, 5-6, 7-8, 9-10\n\n");
+		return;
+	}
+
+	cycle_val = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect cycles");
+		return;
+	}
+	if (nb_params > 1) {
+		timer_num = strtoul(params[1], &c, 0);
+		if (*c != 0) {
+			printf("Incorrect burst length");
+			return;
+		}
+	}
+
+	// Check bounds of timer number
+	if (timer_num == 0) {
+		timer_num = TIMER_CYCLES_ADDR;
+	} else if (timer_num < TIMER_5_ADDR) {
+		timer_num += 1; // To match the address corresponding to variables TIMER_1_ADDR to TIMER_5_ADDR
+	} else {
+		printf("Error: Timer %ld not in bounds\n\n", timer_num);
+		return;
+	}
+
+	// Set the timer
+	printf("Input args: cycle val: %ld, timer_num: %ld\n", cycle_val, timer_num);
+	sdram_set_timer_sigs(cycle_val, timer_num);
+	printf("Timer %ld set to %ld\n", timer_num, sdram_get_timer_sigs(timer_num));
+}
+define_command(sdram_set_cycles_rhtest, sdram_set_cycles_handler, "Set the number of times to run through row hammer sequence", LITEDRAM_CMDS);
+
+/**
+ * Command "set_auto_precharge"
+ * 
+ * Set auto precharge setting for row hammer test
+ * 
+*/
+static void sdram_set_auto_precharge_handler(int nb_params, char **params)
+{
+	char *c;
+	uint32_t auto_precharge_val;
+
+	if (nb_params < 1) {
+		printf("sdram_set_auto_precharge_rhtest <value>\n");
+		printf("value: 1 - enable, 0 - disable (for single row hammer)");
+		return;
+	}
+
+	auto_precharge_val = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect value");
+		return;
+	}
+	rh_test_auto_precharge_csr_write(auto_precharge_val);
+}
+define_command(sdram_set_auto_precharge_rhtest, sdram_set_auto_precharge_handler, "Enable/Disable auto precharge (for single row hammer)", LITEDRAM_CMDS);
+
+
+/**
+ * Command "sdram_rhtest_summary"
+ * 
+ * Display settings for rowhammer test
+ * 
+*/
+static void sdram_rhtest_summary(int nb_params, char **params)
+{
+	sdram_rhtest_summarize_test_params();
+}
+define_command(sdram_summary_rhtest, sdram_rhtest_summary, "Display a summary of settings for the Row Hammer test", LITEDRAM_CMDS);
+
+/**
+ * Command "sdram_pop_addr_freq_rhtest"
+ * 
+ * Run Rowhammer Test
+ * 
+*/
+static void sdram_pop_addr_freq_helper(int nb_params, char **params) 
+{
+	sdram_pop_addr_freq();
+}
+define_command(sdram_pop_addr_freq_rhtest, sdram_pop_addr_freq_helper, "Pop the last address to attack", LITEDRAM_CMDS);
+
+/**
+ * Command "sdram_info_rhtest"
+ * 
+ * Gives information about the address organization in rhtest
+ * 
+*/
+static void sdram_info_rhtest_handler(int nb_params, char **params)
+{
+	rh_test_addr_info();
+}
+define_command(sdram_info_rhtest, sdram_info_rhtest_handler, "Address info for row hammer test", LITEDRAM_CMDS);
+
+/**
+ * Command 'sdram_enable_double_pattern_rhtest
+ * 
+ * Allow for double data patterns
+ * 
+*/
+static void sdram_enable_double_pattern_handler(int nb_params, char **params)
+{
+	char *c;
+	uint32_t enable_val;
+	
+	if (nb_params < 1) {
+		printf("sdram_enable_double_pattern_rhtest <enable_val>");
+		printf("enable_val: 1 to enable two-pattern setting, 0 to only use one-pattern");
+		return;
+	}
+
+	enable_val = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect enable_val");
+		return;
+	}
+
+	rh_test_input_data_double_pattern_setting_csr_write(enable_val);
+	if (rh_test_input_data_double_pattern_setting_csr_read()) {
+		printf("\nTwo-pattern enabled, val: %ld\n\n", rh_test_input_data_double_pattern_setting_csr_read());
+	} else {
+		printf("\nOne-pattern enabled, val: %ld\n\n", rh_test_input_data_double_pattern_setting_csr_read());
+	}
+}
+define_command(sdram_enable_doublepat_rhtest, sdram_enable_double_pattern_handler, "Set one- or two-pattern setting", LITEDRAM_CMDS);
+
+/**
+ * Command 'sdram_set_pattern_rhtest
+ * 
+ * Set the pattern for the row hammer test
+*/
+static void sdram_set_pattern_helper(int nb_params, char **params)
+{
+	char *c;
+	uint32_t pattern_val;
+	uint32_t data_sel = 0;
+
+	if (nb_params < 1) {
+		printf("sdram_set_pattern_rhtest <pattern_val> <data_sel>\n");
+		printf("pattern_val: 32-bit value, replicated to fill data width (data width is %ld)\n", rh_test_data_width_csr_read());
+		printf("data_sel [default=0]: 0 for one-pattern or two-pattern even rows, 1 for two-pattern odd rows\n\n");
+		return;
+	}
+
+	pattern_val = strtoul(params[0], &c, 0);
+	if (*c != 0) {
+		printf("Incorrect pattern_val");
+		return;
+	}
+	if (nb_params > 1) {
+		data_sel = strtoul(params[1], &c, 0);
+		if (*c != 0) {
+			printf("Incorrect burst length");
+			return;
+		}
+	}
+
+	sdram_set_data_pattern(pattern_val, data_sel);
+	show_data_pattern();
+}
+define_command(sdram_set_pattern_rhtest, sdram_set_pattern_helper, "Set the pattern to use in rowhammer test", LITEDRAM_CMDS);
+
+
+/**
+ * Command 'sdram_run_rhtest'
+ * 
+ * Run the row hammer test
+ * 
+*/
+static void sdram_run_rhtest_handler(int nb_params, char **params)
+{
+	char c;
+
+	// Show the current row hammer test settings
+	sdram_rhtest_summarize_test_params();
+
+	// Give user an option to quit
+	printf("\nProceed? Y/n :");
+
+	c = getchar();
+
+	while ((c != 'y') && (c != 'Y') && (c != 'n') && (c != 'N') && (c != '\n')) {
+		printf("\nProceed? Y/n :");
+		c = getchar();
+	}
+
+	// Skip to the end of the function if user decides, else run the test
+	if ((c == 'n') || (c == 'N')) {
+		printf("\nExiting\n");
+	} else {
+		// Run the test
+		run_rowhammer_test();
+	}
+	
+}
+define_command(sdram_run_rhtest, sdram_run_rhtest_handler, "Start row hammer test", LITEDRAM_CMDS);
+
+#endif //CSR_RH_TEST_BASE
+

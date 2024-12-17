@@ -59,7 +59,7 @@ void read_rst_dq_bitslip(int module);
 #endif  // defined(SDRAM_PHY_BITSLIPS) && defined(SDRAM_PHY_READ_LEVELING_CAPABLE)
 
 
-#if defined(SDRAM_PHY_BITSLIPS) && defined(SDRAM_PHY_WRITE_LEVELING_CAPABLE)
+#if defined(SDRAM_PHY_BITSLIPS) //&& defined(SDRAM_PHY_WRITE_LEVELING_CAPABLE)
 
 extern int write_dq_bitslip[SDRAM_PHY_MODULES];
 void write_inc_dq_bitslip(int module);
