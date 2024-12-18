@@ -500,7 +500,7 @@ static void sdram_set_addr_freq_handler(int nb_params, char **params)
 	// Obtain value
 	num_addrs_attack_sig_val = sdram_get_num_addrs_attack_sig();
 
-	if (nb_params < 3) {
+	if (nb_params < 2) {
 		
 
 		printf("sdram_set_addr_freq_rhtest <order_val> <addr_val> <freq_val>\n");
